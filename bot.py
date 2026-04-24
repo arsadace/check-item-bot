@@ -4,7 +4,7 @@ from discord import app_commands
 import pandas as pd
 import os
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 import time
 import re
 from dotenv import load_dotenv
@@ -18,6 +18,7 @@ load_dotenv()
 # =========================
 GUILD_ID = 1489492813942099968
 REPORT_CHANNEL_NAME = "item-reports"
+LOG_CHANNEL_NAME = "bot-logs"
 
 TOKEN = os.getenv("TOKEN")
 GOOGLE_SHEETS_ID = os.getenv("GOOGLE_SHEETS_ID")
@@ -26,10 +27,10 @@ GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
 GOOGLE_SHEETS_RANGE = f"{GOOGLE_SHEETS_TAB}!A:F"
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
-# Optional role-based access. Comma-separated role names, example:
-# EDITOR_ROLE_NAMES=Data Editor,Bot Admin
+# Default editor role = editor
 EDITOR_ROLE_NAMES = [
-    role.strip() for role in os.getenv("EDITOR_ROLE_NAMES", "").split(",") if role.strip()
+    role.strip() for role in os.getenv("EDITOR_ROLE_NAMES", "editor").split(",")
+    if role.strip()
 ]
 
 if not TOKEN:
@@ -97,7 +98,6 @@ def load_data():
         ]
 
         df = pd.DataFrame(normalized_rows, columns=headers)
-
         df.columns = df.columns.str.strip()
         df = df.fillna("-").replace("", "-")
 
@@ -129,7 +129,6 @@ df = load_data()
 def get_name_list():
     if "name" not in df.columns:
         return []
-
     return sorted(
         df["name"]
         .dropna()
@@ -144,7 +143,6 @@ def get_name_list():
 def get_type_list():
     if "type" not in df.columns:
         return []
-
     return sorted(
         df["type"]
         .dropna()
@@ -159,7 +157,6 @@ def get_type_list():
 def get_country_list():
     if "country" not in df.columns:
         return []
-
     return sorted(
         df["country"]
         .dropna()
@@ -174,7 +171,6 @@ def get_country_list():
 def get_source_list():
     if "how_to_obtain" not in df.columns:
         return []
-
     return sorted(
         df["how_to_obtain"]
         .dropna()
@@ -189,19 +185,16 @@ def get_source_list():
 def format_tier(tier_value):
     if pd.isna(tier_value):
         return "-"
-
     try:
         if isinstance(tier_value, (int, float)):
             return f"{tier_value:.0f}"
     except Exception:
         pass
-
     return str(tier_value)
 
 
 def clean_country(value):
     value = str(value).strip()
-
     if not value or value.lower() in ["nan", "-"]:
         return "-"
 
@@ -232,28 +225,10 @@ def build_item_embed(item, description="✨ Item Overview", color=discord.Color.
         description=description,
         color=color,
     )
-
-    embed.add_field(
-        name="🧩 Type",
-        value=f"*{item.get('type', '-')}*",
-        inline=True,
-    )
-    embed.add_field(
-        name="🏆 Tier",
-        value=f"*{format_tier(item.get('tier', '-'))}*",
-        inline=True,
-    )
-    embed.add_field(
-        name="🌍 Country",
-        value=clean_country(item.get("country", "-")),
-        inline=True,
-    )
-    embed.add_field(
-        name="📥 Source",
-        value=str(item.get("how_to_obtain", "-")),
-        inline=False,
-    )
-
+    embed.add_field(name="🧩 Type", value=f"*{item.get('type', '-')}*", inline=True)
+    embed.add_field(name="🏆 Tier", value=f"*{format_tier(item.get('tier', '-'))}*", inline=True)
+    embed.add_field(name="🌍 Country", value=clean_country(item.get("country", "-")), inline=True)
+    embed.add_field(name="📥 Source", value=str(item.get("how_to_obtain", "-")), inline=False)
     embed.set_footer(text="Can't find item? Click Report Item below")
     return embed
 
@@ -350,20 +325,12 @@ def get_next_no_value(dataframe):
 
 
 def user_has_editor_access(member: discord.Member):
-    if member.guild_permissions.administrator or member.guild_permissions.manage_guild:
-        return True
-
-    if EDITOR_ROLE_NAMES:
-        return any(role.name in EDITOR_ROLE_NAMES for role in member.roles)
-
-    return False
+    return any(role.name in EDITOR_ROLE_NAMES for role in member.roles)
 
 
 def make_editor_denied_message():
-    if EDITOR_ROLE_NAMES:
-        roles_text = ", ".join(f"`{role}`" for role in EDITOR_ROLE_NAMES)
-        return f"⛔ You need administrator permission or one of these roles: {roles_text}"
-    return "⛔ You need administrator or Manage Server permission to use this command."
+    roles_text = ", ".join(f"`{role}`" for role in EDITOR_ROLE_NAMES)
+    return f"⛔ You need one of these roles to use this command: {roles_text}"
 
 
 def append_item_to_sheet(no_value, name, country, tier, item_type, how_to_obtain):
@@ -448,16 +415,28 @@ def delete_item_from_sheet(sheet_row_number):
 
 
 # =========================
-# REPORT HELPERS
+# CHANNEL HELPERS
 # =========================
 async def get_report_channel(interaction: discord.Interaction):
     if interaction.guild is None:
         return None
+    return discord.utils.get(interaction.guild.text_channels, name=REPORT_CHANNEL_NAME)
 
-    return discord.utils.get(
-        interaction.guild.text_channels,
-        name=REPORT_CHANNEL_NAME,
-    )
+
+async def get_log_channel(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return None
+    return discord.utils.get(interaction.guild.text_channels, name=LOG_CHANNEL_NAME)
+
+
+async def send_log_embed(interaction: discord.Interaction, embed: discord.Embed):
+    log_channel = await get_log_channel(interaction)
+    if log_channel is None:
+        return
+    try:
+        await log_channel.send(embed=embed)
+    except Exception as e:
+        print(f"❌ Failed to send log message: {e}")
 
 
 async def is_item_already_reported(report_channel: discord.TextChannel, item_name: str):
@@ -527,10 +506,7 @@ async def name_autocomplete(interaction: discord.Interaction, current: str):
     current_normalized = normalize_text(current)
 
     if not current.strip():
-        return [
-            app_commands.Choice(name=name, value=name)
-            for name in name_list[:25]
-        ]
+        return [app_commands.Choice(name=name, value=name) for name in name_list[:25]]
 
     return [
         app_commands.Choice(name=name, value=name)
@@ -544,10 +520,7 @@ async def type_autocomplete(interaction: discord.Interaction, current: str):
     current_normalized = normalize_text(current)
 
     if not current.strip():
-        return [
-            app_commands.Choice(name=t, value=t)
-            for t in type_list[:25]
-        ]
+        return [app_commands.Choice(name=t, value=t) for t in type_list[:25]]
 
     return [
         app_commands.Choice(name=t, value=t)
@@ -561,10 +534,7 @@ async def country_autocomplete(interaction: discord.Interaction, current: str):
     current_normalized = normalize_text(current)
 
     if not current.strip():
-        return [
-            app_commands.Choice(name=c, value=c)
-            for c in country_list[:25]
-        ]
+        return [app_commands.Choice(name=c, value=c) for c in country_list[:25]]
 
     return [
         app_commands.Choice(name=c, value=c)
@@ -578,10 +548,7 @@ async def source_autocomplete(interaction: discord.Interaction, current: str):
     current_normalized = normalize_text(current)
 
     if not current.strip():
-        return [
-            app_commands.Choice(name=s, value=s)
-            for s in source_list[:25]
-        ]
+        return [app_commands.Choice(name=s, value=s) for s in source_list[:25]]
 
     return [
         app_commands.Choice(name=s, value=s)
@@ -615,10 +582,7 @@ async def name_by_type_autocomplete(interaction: discord.Interaction, current: s
     if selected_type:
         selected_type_normalized = normalize_text(selected_type)
         filtered_df = filtered_df[
-            filtered_df["type"]
-            .fillna("")
-            .astype(str)
-            .apply(normalize_text)
+            filtered_df["type"].fillna("").astype(str).apply(normalize_text)
             == selected_type_normalized
         ]
 
@@ -635,10 +599,7 @@ async def name_by_type_autocomplete(interaction: discord.Interaction, current: s
     current_normalized = normalize_text(current)
 
     if not current.strip():
-        return [
-            app_commands.Choice(name=name, value=name)
-            for name in name_list[:25]
-        ]
+        return [app_commands.Choice(name=name, value=name) for name in name_list[:25]]
 
     return [
         app_commands.Choice(name=name, value=name)
@@ -719,40 +680,35 @@ class ReportModal(discord.ui.Modal, title="Report Missing Item"):
 
         normalized_item = normalize_text(item_input)
 
-        embed = discord.Embed(
+        report_embed = discord.Embed(
             title="🚨 Missing Item Report",
             color=discord.Color.red(),
             timestamp=datetime.now(),
         )
-
-        embed.add_field(
+        report_embed.add_field(
             name="👤 Reported By",
             value=f"{interaction.user.mention}\n`{interaction.user}`",
             inline=False,
         )
-
-        embed.add_field(
+        report_embed.add_field(
             name="📦 Item Name",
             value=f"`{item_input}`",
             inline=False,
         )
-
-        embed.add_field(
+        report_embed.add_field(
             name="🔎 Normalized Key",
             value=f"`{normalized_item}`",
             inline=False,
         )
-
-        embed.add_field(
+        report_embed.add_field(
             name="📍 Source Channel",
             value=interaction.channel.mention if interaction.channel else "-",
             inline=False,
         )
-
-        embed.set_footer(text=f"User ID: {interaction.user.id}")
+        report_embed.set_footer(text=f"User ID: {interaction.user.id}")
 
         try:
-            await report_channel.send(embed=embed)
+            await report_channel.send(embed=report_embed)
         except discord.Forbidden:
             await interaction.response.send_message(
                 f"❌ Bot cannot send report to `#{REPORT_CHANNEL_NAME}`. "
@@ -767,6 +723,28 @@ class ReportModal(discord.ui.Modal, title="Report Missing Item"):
                 ephemeral=True,
             )
             return
+
+        log_embed = discord.Embed(
+            title="📝 Report Submitted",
+            color=discord.Color.red(),
+            timestamp=datetime.now(),
+        )
+        log_embed.add_field(
+            name="👤 User",
+            value=f"{interaction.user.mention}\n`{interaction.user}`",
+            inline=False,
+        )
+        log_embed.add_field(
+            name="📦 Item Name",
+            value=item_input,
+            inline=False,
+        )
+        log_embed.add_field(
+            name="📍 Channel",
+            value=interaction.channel.mention if interaction.channel else "-",
+            inline=False,
+        )
+        await send_log_embed(interaction, log_embed)
 
         await interaction.response.send_message(
             f"✅ Report sent to #{REPORT_CHANNEL_NAME}!",
@@ -1002,6 +980,7 @@ async def add_command(
         embed = discord.Embed(
             title="✅ Item Added",
             color=discord.Color.green(),
+            timestamp=datetime.now(),
         )
         embed.add_field(name="📦 Name", value=clean_name, inline=False)
         embed.add_field(name="🌍 Country", value=clean_country_value, inline=True)
@@ -1010,6 +989,23 @@ async def add_command(
         embed.add_field(name="📥 Source", value=clean_source, inline=False)
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        log_embed = discord.Embed(
+            title="➕ Item Added",
+            color=discord.Color.green(),
+            timestamp=datetime.now(),
+        )
+        log_embed.add_field(
+            name="👤 By",
+            value=f"{interaction.user.mention}\n`{interaction.user}`",
+            inline=False,
+        )
+        log_embed.add_field(name="📦 Name", value=clean_name, inline=False)
+        log_embed.add_field(name="🌍 Country", value=clean_country_value, inline=True)
+        log_embed.add_field(name="🏆 Tier", value=clean_tier, inline=True)
+        log_embed.add_field(name="🧩 Type", value=clean_type_value, inline=True)
+        log_embed.add_field(name="📥 Source", value=clean_source, inline=False)
+        await send_log_embed(interaction, log_embed)
 
     except Exception as e:
         print(f"❌ Failed to add item: {e}")
@@ -1060,7 +1056,7 @@ async def edit_command(
 
     if not any([new_country, new_tier, new_type, new_how_to_obtain]):
         await interaction.response.send_message(
-            "❌ Please provide at least one new value to edit.",
+            "❌ Please provide at least 1 new value to edit.",
             ephemeral=True,
         )
         return
@@ -1073,23 +1069,19 @@ async def edit_command(
         )
         return
 
-    sheet_row_number = row_index + 2  # +1 header row, +1 zero-based index
+    sheet_row_number = row_index + 2
 
     current_no = item_row.get("No", get_next_no_value(df))
     updated_name = str(item_row.get("name", name)).strip()
-    updated_country = str(item_row.get("country", "-")).strip()
-    updated_tier = str(item_row.get("tier", "-")).strip()
-    updated_type = str(item_row.get("type", "-")).strip()
-    updated_source = str(item_row.get("how_to_obtain", "-")).strip()
+    old_country = str(item_row.get("country", "-")).strip()
+    old_tier = str(item_row.get("tier", "-")).strip()
+    old_type = str(item_row.get("type", "-")).strip()
+    old_source = str(item_row.get("how_to_obtain", "-")).strip()
 
-    if new_country:
-        updated_country = new_country.strip()
-    if new_tier:
-        updated_tier = new_tier.strip()
-    if new_type:
-        updated_type = new_type.strip()
-    if new_how_to_obtain:
-        updated_source = new_how_to_obtain.strip()
+    updated_country = new_country.strip() if new_country else old_country
+    updated_tier = new_tier.strip() if new_tier else old_tier
+    updated_type = new_type.strip() if new_type else old_type
+    updated_source = new_how_to_obtain.strip() if new_how_to_obtain else old_source
 
     try:
         update_item_in_sheet(
@@ -1106,6 +1098,7 @@ async def edit_command(
         embed = discord.Embed(
             title="✏️ Item Updated",
             color=discord.Color.orange(),
+            timestamp=datetime.now(),
         )
         embed.add_field(name="📦 Name", value=updated_name, inline=False)
         embed.add_field(name="🌍 Country", value=updated_country, inline=True)
@@ -1114,6 +1107,23 @@ async def edit_command(
         embed.add_field(name="📥 Source", value=updated_source, inline=False)
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        log_embed = discord.Embed(
+            title="✏️ Item Edited",
+            color=discord.Color.orange(),
+            timestamp=datetime.now(),
+        )
+        log_embed.add_field(
+            name="👤 By",
+            value=f"{interaction.user.mention}\n`{interaction.user}`",
+            inline=False,
+        )
+        log_embed.add_field(name="📦 Name", value=updated_name, inline=False)
+        log_embed.add_field(name="🌍 Country", value=f"{old_country} → {updated_country}", inline=False)
+        log_embed.add_field(name="🏆 Tier", value=f"{old_tier} → {updated_tier}", inline=False)
+        log_embed.add_field(name="🧩 Type", value=f"{old_type} → {updated_type}", inline=False)
+        log_embed.add_field(name="📥 Source", value=f"{old_source} → {updated_source}", inline=False)
+        await send_log_embed(interaction, log_embed)
 
     except Exception as e:
         print(f"❌ Failed to edit item: {e}")
@@ -1151,8 +1161,12 @@ async def delete_command(interaction: discord.Interaction, name: str):
         )
         return
 
-    sheet_row_number = row_index + 2  # +1 header row, +1 zero-based index
+    sheet_row_number = row_index + 2
     item_name = str(item_row.get("name", name)).strip()
+    item_country = str(item_row.get("country", "-")).strip()
+    item_tier = str(item_row.get("tier", "-")).strip()
+    item_type = str(item_row.get("type", "-")).strip()
+    item_source = str(item_row.get("how_to_obtain", "-")).strip()
 
     try:
         delete_item_from_sheet(sheet_row_number)
@@ -1162,6 +1176,23 @@ async def delete_command(interaction: discord.Interaction, name: str):
             f"🗑️ Deleted item: `{item_name}`",
             ephemeral=True,
         )
+
+        log_embed = discord.Embed(
+            title="🗑️ Item Deleted",
+            color=discord.Color.dark_red(),
+            timestamp=datetime.now(),
+        )
+        log_embed.add_field(
+            name="👤 By",
+            value=f"{interaction.user.mention}\n`{interaction.user}`",
+            inline=False,
+        )
+        log_embed.add_field(name="📦 Name", value=item_name, inline=False)
+        log_embed.add_field(name="🌍 Country", value=item_country, inline=True)
+        log_embed.add_field(name="🏆 Tier", value=item_tier, inline=True)
+        log_embed.add_field(name="🧩 Type", value=item_type, inline=True)
+        log_embed.add_field(name="📥 Source", value=item_source, inline=False)
+        await send_log_embed(interaction, log_embed)
 
     except Exception as e:
         print(f"❌ Failed to delete item: {e}")
@@ -1183,6 +1214,23 @@ async def reload(interaction: discord.Interaction):
     global df
     df = load_data()
     await interaction.response.send_message("✅ Data reloaded!", ephemeral=True)
+
+    log_embed = discord.Embed(
+        title="🔄 Database Reloaded",
+        color=discord.Color.blurple(),
+        timestamp=datetime.now(),
+    )
+    log_embed.add_field(
+        name="👤 By",
+        value=f"{interaction.user.mention}\n`{interaction.user}`",
+        inline=False,
+    )
+    log_embed.add_field(
+        name="📊 Rows Loaded",
+        value=str(len(df)),
+        inline=False,
+    )
+    await send_log_embed(interaction, log_embed)
 
 
 # =========================
@@ -1242,16 +1290,8 @@ async def ping(interaction: discord.Interaction):
         title="🏓 Pong!",
         color=discord.Color.green(),
     )
-    embed.add_field(
-        name="📡 WebSocket Ping",
-        value=f"`{websocket_ping} ms`",
-        inline=False,
-    )
-    embed.add_field(
-        name="⚡ Total Response Ping",
-        value=f"`{total_ping} ms`",
-        inline=False,
-    )
+    embed.add_field(name="📡 WebSocket Ping", value=f"`{websocket_ping} ms`", inline=False)
+    embed.add_field(name="⚡ Total Response Ping", value=f"`{total_ping} ms`", inline=False)
     embed.set_footer(text="Check Item Bot")
 
     await interaction.edit_original_response(content=None, embed=embed)

@@ -231,13 +231,26 @@ def item_exists_in_excel(dataframe, item_name):
 
     normalized_names = dataframe["name"].fillna("").astype(str).apply(normalize_text)
 
-    # Exact normalized match only, so report is blocked only when the item truly exists.
+    # 1. Exact normalized match.
+    # Example: "ANSEQ-3" == "anseq3"
     exact_result = dataframe[normalized_names == normalized_input]
+    if not exact_result.empty:
+        return True, exact_result.iloc[0]
 
-    if exact_result.empty:
-        return False, None
+    # 2. Partial normalized match.
+    # Example: user reports "anseq", Excel has "ANSEQ-3" -> report is rejected.
+    # Minimum 3 characters prevents very short inputs like "a" from blocking reports too easily.
+    if len(normalized_input) >= 3:
+        partial_result = dataframe[
+            normalized_names.apply(
+                lambda existing_name: normalized_input in existing_name
+            )
+        ]
 
-    return True, exact_result.iloc[0]
+        if not partial_result.empty:
+            return True, partial_result.iloc[0]
+
+    return False, None
 
 
 # =========================

@@ -724,28 +724,6 @@ class ReportModal(discord.ui.Modal, title="Report Missing Item"):
             )
             return
 
-        log_embed = discord.Embed(
-            title="📝 Report Submitted",
-            color=discord.Color.red(),
-            timestamp=datetime.now(),
-        )
-        log_embed.add_field(
-            name="👤 User",
-            value=f"{interaction.user.mention}\n`{interaction.user}`",
-            inline=False,
-        )
-        log_embed.add_field(
-            name="📦 Item Name",
-            value=item_input,
-            inline=False,
-        )
-        log_embed.add_field(
-            name="📍 Channel",
-            value=interaction.channel.mention if interaction.channel else "-",
-            inline=False,
-        )
-        await send_log_embed(interaction, log_embed)
-
         await interaction.response.send_message(
             f"✅ Report sent to #{REPORT_CHANNEL_NAME}!",
             ephemeral=True,

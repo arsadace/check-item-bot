@@ -223,6 +223,23 @@ def find_best_match_by_type_and_name(dataframe, item_type, name):
     return contains_result
 
 
+def item_exists_in_excel(dataframe, item_name):
+    normalized_input = normalize_text(item_name)
+
+    if not normalized_input or "name" not in dataframe.columns:
+        return False, None
+
+    normalized_names = dataframe["name"].fillna("").astype(str).apply(normalize_text)
+
+    # Exact normalized match only, so report is blocked only when the item truly exists.
+    exact_result = dataframe[normalized_names == normalized_input]
+
+    if exact_result.empty:
+        return False, None
+
+    return True, exact_result.iloc[0]
+
+
 # =========================
 # REPORT HELPERS
 # =========================
@@ -393,6 +410,15 @@ class ReportModal(discord.ui.Modal, title="Report Missing Item"):
         if not item_input:
             await interaction.response.send_message(
                 "⚠️ Item name cannot be empty!",
+                ephemeral=True,
+            )
+            return
+
+        item_exists, existing_item = item_exists_in_excel(df, item_input)
+
+        if item_exists:
+            await interaction.response.send_message(
+                "⚠️ This item already exists in the database.",
                 ephemeral=True,
             )
             return

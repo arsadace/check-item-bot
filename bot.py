@@ -182,6 +182,23 @@ def get_source_list():
     )
 
 
+def get_selected_item_values(interaction: discord.Interaction, current_field_name: str):
+    selected_values = set()
+
+    for index in range(1, 11):
+        field_name = f"item{index}"
+
+        if field_name == current_field_name:
+            break
+
+        selected_value = getattr(interaction.namespace, field_name, None)
+
+        if selected_value:
+            selected_values.add(normalize_text(selected_value))
+
+    return selected_values
+
+
 def format_tier(tier_value):
     if pd.isna(tier_value):
         return "-"
@@ -515,6 +532,34 @@ async def name_autocomplete(interaction: discord.Interaction, current: str):
     ][:25]
 
 
+async def item_name_autocomplete(interaction: discord.Interaction, current: str):
+    name_list = get_name_list()
+    current_normalized = normalize_text(current)
+    current_field_name = getattr(interaction.namespace, "_focused", None)
+
+    if not current_field_name:
+        current_field_name = ""
+
+    selected_values = get_selected_item_values(interaction, current_field_name)
+
+    filtered_names = [
+        name for name in name_list
+        if normalize_text(name) not in selected_values
+    ]
+
+    if not current.strip():
+        return [
+            app_commands.Choice(name=name, value=name)
+            for name in filtered_names[:25]
+        ]
+
+    return [
+        app_commands.Choice(name=name, value=name)
+        for name in filtered_names
+        if current_normalized in normalize_text(name)
+    ][:25]
+
+
 async def type_autocomplete(interaction: discord.Interaction, current: str):
     type_list = get_type_list()
     current_normalized = normalize_text(current)
@@ -824,16 +869,16 @@ async def type_command(interaction: discord.Interaction, type: str, name: str):
     item10="Tenth item name",
 )
 @app_commands.autocomplete(
-    item1=name_autocomplete,
-    item2=name_autocomplete,
-    item3=name_autocomplete,
-    item4=name_autocomplete,
-    item5=name_autocomplete,
-    item6=name_autocomplete,
-    item7=name_autocomplete,
-    item8=name_autocomplete,
-    item9=name_autocomplete,
-    item10=name_autocomplete,
+    item1=item_name_autocomplete,
+    item2=item_name_autocomplete,
+    item3=item_name_autocomplete,
+    item4=item_name_autocomplete,
+    item5=item_name_autocomplete,
+    item6=item_name_autocomplete,
+    item7=item_name_autocomplete,
+    item8=item_name_autocomplete,
+    item9=item_name_autocomplete,
+    item10=item_name_autocomplete,
 )
 async def item_command(
     interaction: discord.Interaction,
@@ -851,18 +896,35 @@ async def item_command(
     global df
 
     raw_items = [item1, item2, item3, item4, item5, item6, item7, item8, item9, item10]
-    item_inputs = [item.strip() for item in raw_items if item and item.strip()]
+
+    item_inputs = []
+    skipped_duplicates = []
+    seen_items = set()
+
+    for raw_item in raw_items:
+        if not raw_item or not raw_item.strip():
+            continue
+
+        cleaned_item = raw_item.strip()
+        normalized_item = normalize_text(cleaned_item)
+
+        if normalized_item in seen_items:
+            skipped_duplicates.append(cleaned_item)
+            continue
+
+        seen_items.add(normalized_item)
+        item_inputs.append(cleaned_item)
 
     if not item_inputs:
         await interaction.response.send_message(
-            "❌ Please enter at least 1 item name.",
+            "❌ Please enter at least 1 unique item name.",
             ephemeral=True,
         )
         return
 
     embed = discord.Embed(
         title="📦 Multi Item Check",
-        description=f"Checking {len(item_inputs)} item(s)",
+        description=f"Checking {len(item_inputs)} unique item(s)",
         color=discord.Color.purple(),
     )
 
@@ -895,7 +957,14 @@ async def item_command(
             inline=False,
         )
 
-    embed.set_footer(text=f"Found: {found_count} | Not Found: {not_found_count}")
+    if skipped_duplicates:
+        embed.add_field(
+            name="⚠️ Skipped Duplicate",
+            value=", ".join(f"`{item}`" for item in skipped_duplicates),
+            inline=False,
+        )
+
+    embed.set_footer(text=f"Found: {found_count} | Not Found: {not_found_count} | Skipped: {len(skipped_duplicates)}")
 
     if not_found_count > 0:
         await interaction.response.send_message(embed=embed, view=ReportView())

@@ -808,7 +808,7 @@ async def type_command(interaction: discord.Interaction, type: str, name: str):
 # =========================
 @bot.tree.command(
     name="item",
-    description="Check up to 5 items by name",
+    description="Check up to 10 items by name",
     guild=discord.Object(id=GUILD_ID),
 )
 @app_commands.describe(
@@ -817,6 +817,11 @@ async def type_command(interaction: discord.Interaction, type: str, name: str):
     item3="Third item name",
     item4="Fourth item name",
     item5="Fifth item name",
+    item6="Sixth item name",
+    item7="Seventh item name",
+    item8="Eighth item name",
+    item9="Ninth item name",
+    item10="Tenth item name",
 )
 @app_commands.autocomplete(
     item1=name_autocomplete,
@@ -824,6 +829,11 @@ async def type_command(interaction: discord.Interaction, type: str, name: str):
     item3=name_autocomplete,
     item4=name_autocomplete,
     item5=name_autocomplete,
+    item6=name_autocomplete,
+    item7=name_autocomplete,
+    item8=name_autocomplete,
+    item9=name_autocomplete,
+    item10=name_autocomplete,
 )
 async def item_command(
     interaction: discord.Interaction,
@@ -832,10 +842,15 @@ async def item_command(
     item3: str | None = None,
     item4: str | None = None,
     item5: str | None = None,
+    item6: str | None = None,
+    item7: str | None = None,
+    item8: str | None = None,
+    item9: str | None = None,
+    item10: str | None = None,
 ):
     global df
 
-    raw_items = [item1, item2, item3, item4, item5]
+    raw_items = [item1, item2, item3, item4, item5, item6, item7, item8, item9, item10]
     item_inputs = [item.strip() for item in raw_items if item and item.strip()]
 
     if not item_inputs:

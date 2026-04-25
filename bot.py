@@ -896,7 +896,11 @@ async def item_command(
         )
 
     embed.set_footer(text=f"Found: {found_count} | Not Found: {not_found_count}")
-    await interaction.response.send_message(embed=embed)
+
+    if not_found_count > 0:
+        await interaction.response.send_message(embed=embed, view=ReportView())
+    else:
+        await interaction.response.send_message(embed=embed)
 
 
 # =========================

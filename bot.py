@@ -182,15 +182,11 @@ def get_source_list():
     )
 
 
-def get_selected_item_values(interaction: discord.Interaction, current_field_name: str):
+def get_selected_item_values_before(interaction: discord.Interaction, current_index: int):
     selected_values = set()
 
-    for index in range(1, 11):
+    for index in range(1, current_index):
         field_name = f"item{index}"
-
-        if field_name == current_field_name:
-            break
-
         selected_value = getattr(interaction.namespace, field_name, None)
 
         if selected_value:
@@ -532,15 +528,14 @@ async def name_autocomplete(interaction: discord.Interaction, current: str):
     ][:25]
 
 
-async def item_name_autocomplete(interaction: discord.Interaction, current: str):
+async def item_autocomplete_for_index(
+    interaction: discord.Interaction,
+    current: str,
+    current_index: int,
+):
     name_list = get_name_list()
     current_normalized = normalize_text(current)
-    current_field_name = getattr(interaction.namespace, "_focused", None)
-
-    if not current_field_name:
-        current_field_name = ""
-
-    selected_values = get_selected_item_values(interaction, current_field_name)
+    selected_values = get_selected_item_values_before(interaction, current_index)
 
     filtered_names = [
         name for name in name_list
@@ -558,6 +553,46 @@ async def item_name_autocomplete(interaction: discord.Interaction, current: str)
         for name in filtered_names
         if current_normalized in normalize_text(name)
     ][:25]
+
+
+async def item1_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 1)
+
+
+async def item2_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 2)
+
+
+async def item3_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 3)
+
+
+async def item4_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 4)
+
+
+async def item5_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 5)
+
+
+async def item6_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 6)
+
+
+async def item7_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 7)
+
+
+async def item8_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 8)
+
+
+async def item9_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 9)
+
+
+async def item10_autocomplete(interaction: discord.Interaction, current: str):
+    return await item_autocomplete_for_index(interaction, current, 10)
 
 
 async def type_autocomplete(interaction: discord.Interaction, current: str):
@@ -869,16 +904,16 @@ async def type_command(interaction: discord.Interaction, type: str, name: str):
     item10="Tenth item name",
 )
 @app_commands.autocomplete(
-    item1=item_name_autocomplete,
-    item2=item_name_autocomplete,
-    item3=item_name_autocomplete,
-    item4=item_name_autocomplete,
-    item5=item_name_autocomplete,
-    item6=item_name_autocomplete,
-    item7=item_name_autocomplete,
-    item8=item_name_autocomplete,
-    item9=item_name_autocomplete,
-    item10=item_name_autocomplete,
+    item1=item1_autocomplete,
+    item2=item2_autocomplete,
+    item3=item3_autocomplete,
+    item4=item4_autocomplete,
+    item5=item5_autocomplete,
+    item6=item6_autocomplete,
+    item7=item7_autocomplete,
+    item8=item8_autocomplete,
+    item9=item9_autocomplete,
+    item10=item10_autocomplete,
 )
 async def item_command(
     interaction: discord.Interaction,

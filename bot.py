@@ -724,7 +724,7 @@ async def tier_autocomplete(interaction: discord.Interaction, current: str):
 
 
 async def full_release_autocomplete(interaction: discord.Interaction, current: str):
-    choices = ["no", "yes"]
+    choices = ["yes", "no"]
     normalized_current = normalize_text(current)
 
     if not current.strip():

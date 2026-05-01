@@ -24,7 +24,7 @@ TOKEN = os.getenv("TOKEN")
 GOOGLE_SHEETS_ID = os.getenv("GOOGLE_SHEETS_ID")
 GOOGLE_SHEETS_TAB = os.getenv("GOOGLE_SHEETS_TAB", "Sheet1")
 GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-GOOGLE_SHEETS_RANGE = f"{GOOGLE_SHEETS_TAB}!A:F"
+GOOGLE_SHEETS_RANGE = f"{GOOGLE_SHEETS_TAB}!A:G"
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 # Default editor role = editor
@@ -85,7 +85,7 @@ def load_data():
         if not values:
             print("❌ Google Sheet is empty.")
             return pd.DataFrame(
-                columns=["No", "name", "country", "tier", "type", "how_to_obtain"]
+                columns=["No", "name", "country", "tier", "type", "how_to_obtain", "full_release"]
             )
 
         headers = [str(h).strip() for h in values[0]]
@@ -116,7 +116,7 @@ def load_data():
     except Exception as e:
         print(f"❌ Failed to load Google Sheets data: {e}")
         return pd.DataFrame(
-            columns=["No", "name", "country", "tier", "type", "how_to_obtain"]
+            columns=["No", "name", "country", "tier", "type", "how_to_obtain", "full_release"]
         )
 
 
@@ -232,7 +232,77 @@ def clean_country(value):
     return value.title()
 
 
-def build_item_embed(item, description="✨ Item Overview", color=discord.Color.gold()):
+def is_yes(value):
+    return normalize_text(value) in ["yes", "y", "true", "1"]
+
+
+def get_row_value_by_position(row, position_index, default="-"):
+    try:
+        value = row.iloc[position_index]
+        value = str(value).strip()
+        if not value or value.lower() in ["nan", "-"]:
+            return default
+        return value
+    except Exception:
+        return default
+
+
+def get_full_release_value(row):
+    # Prefer common header names if column G has a header.
+    possible_headers = [
+        "full_release",
+        "full release",
+        "full_release_source",
+        "full release source",
+        "full_release_obtain",
+        "full release obtain",
+    ]
+
+    normalized_index_map = {
+        normalize_text(column_name): column_name
+        for column_name in row.index
+    }
+
+    for header in possible_headers:
+        normalized_header = normalize_text(header)
+        if normalized_header in normalized_index_map:
+            column_name = normalized_index_map[normalized_header]
+            value = str(row.get(column_name, "-")).strip()
+            if value and value.lower() not in ["nan", "-"]:
+                return value
+
+    # Fallback: use column G by position.
+    # A=0, B=1, C=2, D=3, E=4, F=5, G=6
+    return get_row_value_by_position(row, 6, "-")
+
+
+def get_source_display(row, full_release="no"):
+    base_source = str(row.get("how_to_obtain", "-")).strip()
+
+    if not base_source or base_source.lower() in ["nan", "-"]:
+        base_source = "-"
+
+    if not is_yes(full_release):
+        return base_source
+
+    full_release_source = get_full_release_value(row)
+
+    if not full_release_source or full_release_source == "-":
+        return base_source
+
+    if base_source == "-":
+        return full_release_source
+
+    return f"{base_source}\n{full_release_source}"
+
+
+def get_source_label(full_release="no"):
+    if is_yes(full_release):
+        return "📥 How to Obtain"
+    return "📥 First Release"
+
+
+def build_item_embed(item, description="✨ Item Overview", color=discord.Color.gold(), full_release="no"):
     embed = discord.Embed(
         title=f"📦 {item.get('name', '-')}",
         description=description,
@@ -241,7 +311,7 @@ def build_item_embed(item, description="✨ Item Overview", color=discord.Color.
     embed.add_field(name="🧩 Type", value=f"*{item.get('type', '-')}*", inline=True)
     embed.add_field(name="🏆 Tier", value=f"*{format_tier(item.get('tier', '-'))}*", inline=True)
     embed.add_field(name="🌍 Country", value=clean_country(item.get("country", "-")), inline=True)
-    embed.add_field(name="📥 Source", value=str(item.get("how_to_obtain", "-")), inline=False)
+    embed.add_field(name=get_source_label(full_release), value=get_source_display(item, full_release), inline=False)
     embed.set_footer(text="Can't find item? Click Report Item below")
     return embed
 
@@ -357,12 +427,13 @@ def append_item_to_sheet(no_value, name, country, tier, item_type, how_to_obtain
             str(tier).strip(),
             str(item_type).strip(),
             str(how_to_obtain).strip(),
+            "",
         ]]
     }
 
     service.spreadsheets().values().append(
         spreadsheetId=GOOGLE_SHEETS_ID,
-        range=f"{GOOGLE_SHEETS_TAB}!A:F",
+        range=f"{GOOGLE_SHEETS_TAB}!A:G",
         valueInputOption="USER_ENTERED",
         insertDataOption="INSERT_ROWS",
         body=body
@@ -380,12 +451,13 @@ def update_item_in_sheet(sheet_row_number, no_value, name, country, tier, item_t
             str(tier).strip(),
             str(item_type).strip(),
             str(how_to_obtain).strip(),
+            "",
         ]]
     }
 
     service.spreadsheets().values().update(
         spreadsheetId=GOOGLE_SHEETS_ID,
-        range=f"{GOOGLE_SHEETS_TAB}!A{sheet_row_number}:F{sheet_row_number}",
+        range=f"{GOOGLE_SHEETS_TAB}!A{sheet_row_number}:G{sheet_row_number}",
         valueInputOption="USER_ENTERED",
         body=body
     ).execute()
@@ -651,6 +723,20 @@ async def tier_autocomplete(interaction: discord.Interaction, current: str):
     ][:25]
 
 
+async def full_release_autocomplete(interaction: discord.Interaction, current: str):
+    choices = ["no", "yes"]
+    normalized_current = normalize_text(current)
+
+    if not current.strip():
+        return [app_commands.Choice(name=choice, value=choice) for choice in choices]
+
+    return [
+        app_commands.Choice(name=choice, value=choice)
+        for choice in choices
+        if normalized_current in normalize_text(choice)
+    ][:25]
+
+
 async def name_by_type_autocomplete(interaction: discord.Interaction, current: str):
     selected_type = getattr(interaction.namespace, "type", None)
 
@@ -831,9 +917,12 @@ class ReportView(discord.ui.View):
     description="Check item by name",
     guild=discord.Object(id=GUILD_ID),
 )
-@app_commands.describe(name="Item name")
-@app_commands.autocomplete(name=name_autocomplete)
-async def check(interaction: discord.Interaction, name: str):
+@app_commands.describe(
+    name="Item name",
+    full_release="yes = show First Release + Full Release",
+)
+@app_commands.autocomplete(name=name_autocomplete, full_release=full_release_autocomplete)
+async def check(interaction: discord.Interaction, name: str, full_release: str = "no"):
     global df
 
     result = find_best_match_by_name(df, name)
@@ -846,7 +935,7 @@ async def check(interaction: discord.Interaction, name: str):
         return
 
     item = result.iloc[0]
-    embed = build_item_embed(item)
+    embed = build_item_embed(item, full_release=full_release)
 
     await interaction.response.send_message(embed=embed, view=ReportView())
 
@@ -859,9 +948,13 @@ async def check(interaction: discord.Interaction, name: str):
     description="Check item by type and name",
     guild=discord.Object(id=GUILD_ID),
 )
-@app_commands.describe(type="Item type", name="Item name")
-@app_commands.autocomplete(type=type_autocomplete, name=name_by_type_autocomplete)
-async def type_command(interaction: discord.Interaction, type: str, name: str):
+@app_commands.describe(
+    type="Item type",
+    name="Item name",
+    full_release="yes = show First Release + Full Release",
+)
+@app_commands.autocomplete(type=type_autocomplete, name=name_by_type_autocomplete, full_release=full_release_autocomplete)
+async def type_command(interaction: discord.Interaction, type: str, name: str, full_release: str = "no"):
     global df
 
     result = find_best_match_by_type_and_name(df, type, name)
@@ -878,6 +971,7 @@ async def type_command(interaction: discord.Interaction, type: str, name: str):
         item,
         description="✨ Item Overview by Type",
         color=discord.Color.blue(),
+        full_release=full_release,
     )
 
     await interaction.response.send_message(embed=embed, view=ReportView())
@@ -902,6 +996,7 @@ async def type_command(interaction: discord.Interaction, type: str, name: str):
     item8="Eighth item name",
     item9="Ninth item name",
     item10="Tenth item name",
+    full_release="yes = show First Release + Full Release",
 )
 @app_commands.autocomplete(
     item1=item1_autocomplete,
@@ -914,6 +1009,7 @@ async def type_command(interaction: discord.Interaction, type: str, name: str):
     item8=item8_autocomplete,
     item9=item9_autocomplete,
     item10=item10_autocomplete,
+    full_release=full_release_autocomplete,
 )
 async def item_command(
     interaction: discord.Interaction,
@@ -927,6 +1023,7 @@ async def item_command(
     item8: str | None = None,
     item9: str | None = None,
     item10: str | None = None,
+    full_release: str = "no",
 ):
     global df
 
@@ -987,7 +1084,7 @@ async def item_command(
                 f"**Type:** {item.get('type', '-')}\n"
                 f"**Tier:** {format_tier(item.get('tier', '-'))}\n"
                 f"**Country:** {clean_country(item.get('country', '-'))}\n"
-                f"**Source:** {item.get('how_to_obtain', '-')}"
+                f"**{get_source_label(full_release).replace('📥 ', '')}:** {get_source_display(item, full_release)}"
             ),
             inline=False,
         )
